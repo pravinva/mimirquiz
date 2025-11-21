@@ -50,6 +50,18 @@ export default async function Home() {
           </Link>
 
           <Link
+            href="/lobby"
+            className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow text-white"
+          >
+            <h3 className="text-xl font-semibold mb-2">
+              Multiplayer Quiz 🎮
+            </h3>
+            <p>
+              Play with up to 4 friends! Each player uses their own microphone
+            </p>
+          </Link>
+
+          <Link
             href="/dashboard"
             className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow"
           >

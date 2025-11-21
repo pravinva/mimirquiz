@@ -7,6 +7,7 @@ import { useGameStore } from '@/stores/gameStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useGoogleCloudTTS } from '@/hooks/useGoogleCloudTTS';
 import { useMicrophone } from '@/hooks/useMicrophone';
+import { useMultiplayerSync } from '@/hooks/useMultiplayerSync';
 import { gameEngine } from '@/lib/game/engine';
 import { MIMIR_RULES, AnswerResult } from '@/lib/game/types';
 import { playBellSound, playDingSound } from '@/lib/sounds';
@@ -56,11 +57,37 @@ export default function GamePage() {
   const gameState = useGameStore();
   const { hasPermission, requestPermission } = useMicrophone();
 
+  // Multiplayer support
+  const [multiplayerAnswers, setMultiplayerAnswers] = useState<Array<{
+    playerName: string;
+    answer: string;
+    isCorrect: boolean;
+    timestamp: number;
+  }>>([]);
+
+  const { isMultiplayer, submitAnswer: submitMultiplayerAnswer, currentPlayer: multiplayerPlayer } = useMultiplayerSync({
+    onAnswerSubmitted: (data) => {
+      // Show other players' answers in real-time
+      setMultiplayerAnswers(prev => [...prev, {
+        playerName: data.playerName,
+        answer: data.answer,
+        isCorrect: data.isCorrect,
+        timestamp: Date.now()
+      }]);
+
+      // Clear after 3 seconds
+      setTimeout(() => {
+        setMultiplayerAnswers(prev => prev.filter(a => Date.now() - a.timestamp < 3000));
+      }, 3000);
+    }
+  });
+
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    // In multiplayer mode, authentication is not required
+    if (!isMultiplayer && status === 'unauthenticated') {
       redirect('/login');
     }
-  }, [status]);
+  }, [status, isMultiplayer]);
 
   useEffect(() => {
     fetchQuizzes();
@@ -419,14 +446,25 @@ export default function GamePage() {
 
     // Submit answer to API and capture response
     try {
-      // Use the host's user ID (logged-in user) for playerId since only host can submit
-      // The playerName field identifies which player actually answered
-      const hostUserId = session?.user?.id ? parseInt(session.user.id as string) : null;
-      if (!hostUserId) {
-        console.error('No user session found');
-        speak('Failed to save answer. Please log in.');
-        return;
-      }
+      // In multiplayer mode, skip API submission and just sync via Socket.IO
+      if (isMultiplayer) {
+        // Update game state with the processAnswer results
+        gameState.setGameState({
+          ...updates,
+          lastAnswerResult: result,
+          lastAnswerPlayerIndex: gameState.currentPlayerIndex,
+        });
+
+        // Sync answer with multiplayer
+        submitMultiplayerAnswer(spokenAnswer, result === 'correct', pointsAwarded);
+      } else {
+        // Single-player mode: Use the host's user ID (logged-in user) for playerId
+        const hostUserId = session?.user?.id ? parseInt(session.user.id as string) : null;
+        if (!hostUserId) {
+          console.error('No user session found');
+          speak('Failed to save answer. Please log in.');
+          return;
+        }
 
       const response = await fetch(`/api/games/${gameState.sessionId}/answer`, {
         method: 'POST',
@@ -452,17 +490,20 @@ export default function GamePage() {
 
       const data = await response.json();
 
-      // Update game state with the processAnswer results
-      gameState.setGameState({
-        ...updates,
-        lastAnswerId: data.answer.id,
-        lastAnswerResult: result,
-        lastAnswerPlayerIndex: gameState.currentPlayerIndex,
-      });
+        // Update game state with the processAnswer results
+        gameState.setGameState({
+          ...updates,
+          lastAnswerId: data.answer.id,
+          lastAnswerResult: result,
+          lastAnswerPlayerIndex: gameState.currentPlayerIndex,
+        });
+      }
     } catch (error) {
       console.error('Failed to submit answer:', error);
-      speak('Failed to save answer. Please check your connection.');
-      return;
+      if (!isMultiplayer) {
+        speak('Failed to save answer. Please check your connection.');
+        return;
+      }
     }
 
     // Use the updates from processAnswer - it contains the correct activeMicPlayerIndex
@@ -1061,6 +1102,31 @@ export default function GamePage() {
                   <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-600">Last heard:</p>
                     <p>{transcript}</p>
+                  </div>
+                )}
+
+                {/* Multiplayer Answer Feed */}
+                {isMultiplayer && multiplayerAnswers.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm text-gray-600 font-semibold">Recent Answers:</p>
+                    {multiplayerAnswers.map((ans, idx) => (
+                      <div
+                        key={`${ans.playerName}-${ans.timestamp}-${idx}`}
+                        className={`p-3 rounded-lg border-2 ${
+                          ans.isCorrect
+                            ? 'bg-green-50 border-green-300'
+                            : 'bg-red-50 border-red-300'
+                        } animate-fade-in`}
+                      >
+                        <p className="font-semibold text-sm">
+                          {ans.playerName}:{' '}
+                          <span className={ans.isCorrect ? 'text-green-700' : 'text-red-700'}>
+                            {ans.answer}
+                          </span>
+                          {ans.isCorrect && ' ✓'}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
