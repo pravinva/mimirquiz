@@ -544,8 +544,8 @@ export default function GamePage() {
               } else {
                 console.warn('No activeMicPlayerIndex set, mic will not activate. Updates:', updates);
               }
-            }, 5000); // 5 seconds to say "repeat"
-          }, 150);
+              }, 5000); // 5 seconds to say "repeat"
+          }, 300); // Increased delay to prevent overlap
         },
       });
     }
