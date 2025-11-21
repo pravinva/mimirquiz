@@ -139,12 +139,7 @@ export default function GamePage() {
     }
   }, [languageCode, voiceName, fallbackVoices]);
 
-  useEffect(() => {
-    fetchQuizzes();
-    fetchVoices();
-  }, [fetchVoices]);
-
-  const fetchQuizzes = async () => {
+  const fetchQuizzes = useCallback(async () => {
     try {
       const response = await fetch('/api/quizzes');
       if (response.ok) {
@@ -156,7 +151,7 @@ export default function GamePage() {
     } finally {
       setIsLoadingQuizzes(false);
     }
-  };
+  }, []);
 
   const handleSpeechResult = useCallback(
     (result: string) => {
@@ -214,6 +209,7 @@ export default function GamePage() {
         }
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [gameState]
   );
 
@@ -404,7 +400,7 @@ export default function GamePage() {
         }, 200);
       },
     });
-  }, [gameState, speak, startListening, stopListening]);
+  }, [gameState, speak, startListening, stopListening, isListening]);
 
   const handleAnswer = useCallback(async (spokenAnswer: string) => {
     if (!gameState.questions || !gameState.sessionId) return;
@@ -589,6 +585,7 @@ export default function GamePage() {
         },
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState, session, stopListening, speak, startListening, isMultiplayer, submitMultiplayerAnswer]);
 
   // Helper function to normalize text for phonetic comparison
@@ -863,6 +860,7 @@ export default function GamePage() {
         moveToNextQuestionRef.current?.();
       }, 2000);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState, stopListening, speak]);
 
   const moveToNextQuestion = useCallback(() => {
