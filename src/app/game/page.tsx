@@ -77,10 +77,9 @@ export default function GamePage() {
   // Memoized timeout handler to avoid stale closures in timer effect
   const handleTimeout = useCallback(() => {
     if (gameState.micState === 'listening' || gameState.micState === 'active') {
-      // Player ran out of time
+      // Player ran out of time - treat as pass
       stopListening();
-      // Will be handled by handleAnswer function
-      gameState.setGameState({ micState: 'disabled' });
+      handleAnswer(''); // Empty string will be treated as pass
     } else if (gameState.micState === 'overrule_window') {
       // Overrule window expired
       gameState.setGameState({
@@ -140,6 +139,7 @@ export default function GamePage() {
             id: idx + 1,
             name: name.trim(),
             score: 0,
+            bonusAttempts: 0,
           }));
 
         const initialState = gameEngine.initializeGame(
@@ -265,14 +265,19 @@ export default function GamePage() {
     }
   };
 
-  const checkAnswer = (spoken: string, correct: string): 'correct' | 'incorrect' | 'timeout' => {
-    // Handle timeout case (empty answer)
+  const checkAnswer = (spoken: string, correct: string): AnswerResult => {
+    // Handle timeout case (empty answer) - treat as pass
     if (!spoken || !spoken.trim()) {
-      return 'timeout';
+      return 'passed';
     }
 
     const normalizedSpoken = spoken.toLowerCase().trim();
     const normalizedCorrect = correct.toLowerCase().trim();
+
+    // Check if player said "pass"
+    if (normalizedSpoken.includes('pass')) {
+      return 'passed';
+    }
 
     // Exact substring match
     if (normalizedSpoken.includes(normalizedCorrect)) {
@@ -510,6 +515,9 @@ export default function GamePage() {
                     <div className="font-semibold">{player.name}</div>
                     <div className="text-2xl font-bold text-primary-600">
                       {player.score}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      Bonus: {player.bonusAttempts || 0}
                     </div>
                     {idx === gameState.activeMicPlayerIndex && (
                       <div className="text-xs text-green-600 mt-1">

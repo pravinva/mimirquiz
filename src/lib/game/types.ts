@@ -6,6 +6,7 @@ export interface Player {
   id: number;
   name: string;
   score: number;
+  bonusAttempts: number;
 }
 
 export interface Question {
@@ -39,6 +40,7 @@ export interface GameState {
   lastAnswerId?: number;
   lastAnswerResult?: AnswerResult;
   lastAnswerPlayerIndex?: number;
+  warnings?: string[];
 }
 
 export interface AnswerAttempt {

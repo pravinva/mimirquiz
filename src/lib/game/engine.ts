@@ -3,10 +3,8 @@ import { GameState, AnswerResult, MIMIR_RULES, Question, Player } from './types'
 export class GameEngine {
   calculateScore(result: AnswerResult, isAddressed: boolean): number {
     if (result !== 'correct') return 0;
-
-    return isAddressed
-      ? MIMIR_RULES.POINTS_CORRECT_ADDRESSED
-      : MIMIR_RULES.POINTS_CORRECT_PASSED;
+    // All correct answers award 1 point
+    return 1;
   }
 
   getNextPlayerIndex(
@@ -87,17 +85,61 @@ export class GameEngine {
     result: AnswerResult
   ): Partial<GameState> {
     const isAddressed = state.currentPlayerIndex === state.addressedPlayerIndex;
-    const points = this.calculateScore(result, isAddressed);
-
     const updatedPlayers = [...state.players];
-    updatedPlayers[state.currentPlayerIndex].score += points;
 
+    // Handle pass: no score change, no bonus attempt change, move to next player
+    if (result === 'passed') {
+      const newAttemptCount = state.attemptCount + 1;
+
+      if (this.shouldEndQuestion(newAttemptCount, state.players.length)) {
+        return {
+          players: updatedPlayers,
+          attemptCount: newAttemptCount,
+          showAnswer: true,
+          micState: 'overrule_window',
+          timerSeconds: MIMIR_RULES.OVERRULE_WINDOW_SECONDS,
+        };
+      }
+
+      const nextPlayerIndex = this.getNextPlayerIndex(
+        state.currentPlayerIndex,
+        state.addressedPlayerIndex,
+        state.players.length,
+        newAttemptCount
+      );
+
+      const nextIsAddressed = nextPlayerIndex === state.addressedPlayerIndex;
+
+      return {
+        players: updatedPlayers,
+        currentPlayerIndex: nextPlayerIndex,
+        attemptCount: newAttemptCount,
+        activeMicPlayerIndex: nextPlayerIndex,
+        micState: 'active',
+        timerSeconds: this.getTimerDuration(nextIsAddressed),
+      };
+    }
+
+    // For correct answers: award 1 point
     if (result === 'correct') {
+      updatedPlayers[state.currentPlayerIndex].score += 1;
+
+      // If this is a bonus attempt (not the addressed player), increment bonus attempts
+      if (!isAddressed) {
+        updatedPlayers[state.currentPlayerIndex].bonusAttempts += 1;
+      }
+
       return {
         players: updatedPlayers,
         showAnswer: false,
         micState: 'disabled',
       };
+    }
+
+    // For incorrect answers
+    // If this is a bonus attempt, increment bonus attempts count
+    if (!isAddressed) {
+      updatedPlayers[state.currentPlayerIndex].bonusAttempts += 1;
     }
 
     const newAttemptCount = state.attemptCount + 1;
@@ -208,7 +250,7 @@ export class GameEngine {
       quizFileId,
       league,
       topic,
-      players: players.map(p => ({ ...p, score: 0 })),
+      players: players.map(p => ({ ...p, score: 0, bonusAttempts: 0 })),
       questions,
       currentQuestionIndex: 0,
       currentPlayerIndex: addressedPlayerIndex,
