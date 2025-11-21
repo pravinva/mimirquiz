@@ -19,8 +19,12 @@ export default function AdminUploadForm() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      if (!selectedFile.name.endsWith('.xlsx')) {
-        setError('Please select an XLSX file');
+      const fileName = selectedFile.name.toLowerCase();
+      const validExtensions = ['.xlsx', '.tsv', '.numbers', '.csv', '.xls'];
+      const isValid = validExtensions.some(ext => fileName.endsWith(ext));
+
+      if (!isValid) {
+        setError('Please select a valid spreadsheet file (.xlsx, .tsv, .numbers, .csv, or .xls)');
         setFile(null);
         return;
       }
@@ -58,9 +62,16 @@ export default function AdminUploadForm() {
 
       if (response.ok) {
         const data = await response.json();
-        setSuccess(
-          `Quiz uploaded successfully! ${data.quizFile.totalQuestions} questions in ${data.quizFile.totalRounds} rounds.`
-        );
+        let message = `Quiz uploaded successfully! ${data.quizFile.totalQuestions} questions in ${data.quizFile.totalRounds} rounds.`;
+
+        if (data.warnings && data.warnings.length > 0) {
+          message += `\n\nWarnings:\n${data.warnings.slice(0, 5).join('\n')}`;
+          if (data.warnings.length > 5) {
+            message += `\n... and ${data.warnings.length - 5} more warnings`;
+          }
+        }
+
+        setSuccess(message);
         setFile(null);
         setMetadata({ author: '', topic: '', league: '', description: '' });
         router.refresh();
@@ -92,14 +103,17 @@ export default function AdminUploadForm() {
 
         <div>
           <label className="block text-sm font-medium mb-2">
-            XLSX File <span className="text-red-500">*</span>
+            Quiz File <span className="text-red-500">*</span>
           </label>
           <input
             type="file"
-            accept=".xlsx"
+            accept=".xlsx,.xls,.tsv,.csv,.numbers"
             onChange={handleFileChange}
             className="w-full border border-gray-300 rounded-md p-2"
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Supported formats: .xlsx, .xls, .tsv, .csv, .numbers
+          </p>
           <p className="text-xs text-gray-500 mt-1">
             Must include columns: round, player, question, answer
           </p>

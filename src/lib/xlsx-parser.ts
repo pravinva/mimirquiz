@@ -63,7 +63,12 @@ export function validateXLSXStructure(file: ArrayBuffer): { valid: boolean; erro
     const workbook = XLSX.read(file, { type: 'array' });
 
     if (workbook.SheetNames.length === 0) {
-      errors.push('No sheets found in the XLSX file');
+      errors.push(
+        'No sheets found in the file. Please ensure your file:\n' +
+        '- Is a valid spreadsheet file (.xlsx, .xls, .tsv, .csv, or .numbers)\n' +
+        '- Contains at least one worksheet/sheet\n' +
+        '- Is not corrupted or password-protected'
+      );
       return { valid: false, errors };
     }
 
@@ -71,7 +76,16 @@ export function validateXLSXStructure(file: ArrayBuffer): { valid: boolean; erro
     const data: any[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
 
     if (data.length < 2) {
-      errors.push('File must contain at least a header row and one data row');
+      errors.push(
+        'File must contain at least a header row and one data row.\n\n' +
+        'Your file should have:\n' +
+        '- Row 1: Column headers (round, player, question, answer)\n' +
+        '- Row 2+: Quiz question data\n\n' +
+        'Example format:\n' +
+        '| round | player | question | answer |\n' +
+        '|-------|--------|----------|--------|\n' +
+        '|   1   |   1    | What...? | Paris  |'
+      );
       return { valid: false, errors };
     }
 
@@ -89,7 +103,18 @@ export function validateXLSXStructure(file: ArrayBuffer): { valid: boolean; erro
     );
 
     if (missingColumns.length > 0) {
-      errors.push(`Missing required columns: ${missingColumns.join(', ')}`);
+      errors.push(
+        `Missing required columns: ${missingColumns.join(', ')}\n\n` +
+        `Your file must contain these column headers:\n` +
+        `- "round" or "round number" (the round/category number)\n` +
+        `- "player" or "player number" (which player gets the question first)\n` +
+        `- "question" or "q" (the question text)\n` +
+        `- "answer" or "a" or "ans" (the correct answer)\n\n` +
+        `Optional columns:\n` +
+        `- "question image" or "question_image" (URL to question image)\n` +
+        `- "answer image" or "answer_image" (URL to answer image)\n\n` +
+        `Found headers in your file: ${headers.join(', ')}`
+      );
     }
 
     if (errors.length === 0 && data.length === 1) {
@@ -97,7 +122,14 @@ export function validateXLSXStructure(file: ArrayBuffer): { valid: boolean; erro
     }
 
   } catch (error) {
-    errors.push(`Failed to parse XLSX file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    errors.push(
+      `Failed to parse file: ${error instanceof Error ? error.message : 'Unknown error'}\n\n` +
+      `Please ensure your file is:\n` +
+      `- A valid spreadsheet format (.xlsx, .xls, .tsv, .csv, or .numbers)\n` +
+      `- Not corrupted or password-protected\n` +
+      `- Properly formatted with a header row containing the required columns\n\n` +
+      `Required columns: round, player, question, answer`
+    );
   }
 
   return {

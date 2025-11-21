@@ -55,9 +55,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate file extension
-    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    const fileName = file.name.toLowerCase();
+    const validExtensions = ['.xlsx', '.xls', '.tsv', '.csv', '.numbers'];
+    const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+
+    if (!hasValidExtension) {
       return NextResponse.json(
-        { error: 'Only XLSX files are allowed' },
+        { error: 'Invalid file format. Supported formats: .xlsx, .xls, .tsv, .csv, .numbers' },
         { status: 400 }
       );
     }
@@ -72,7 +76,7 @@ export async function POST(req: NextRequest) {
     const validation = validateXLSXStructure(fileBuffer);
     if (!validation.valid) {
       return NextResponse.json(
-        { error: 'Invalid XLSX file structure', details: validation.errors },
+        { error: 'Invalid file structure', details: validation.errors },
         { status: 400 }
       );
     }
