@@ -5,6 +5,7 @@ import { quizFiles, quizQuestions, auditLogs } from '@/db/schema';
 import { getCurrentUser } from '@/lib/auth-utils';
 import { parseXLSX, validateXLSXStructure } from '@/lib/xlsx-parser';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
 
 const metadataSchema = z.object({
   author: z.string().min(1, 'Author is required'),
@@ -14,6 +15,10 @@ const metadataSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // Apply rate limiting: 10 uploads per hour
+  const rateLimitResponse = await rateLimit(req, RATE_LIMIT_CONFIGS.UPLOAD);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const user = await getCurrentUser();
 

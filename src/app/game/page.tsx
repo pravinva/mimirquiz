@@ -53,11 +53,19 @@ export default function GamePage() {
         if (result.toLowerCase().includes('overrule')) {
           handleOverruleDetected();
         }
+      } else if (gameState.overruleInProgress) {
+        // Listening for "I was correct" or "I was wrong" during overrule claim
+        const lowerResult = result.toLowerCase();
+        if (lowerResult.includes('correct') || lowerResult.includes('right')) {
+          handleOverruleClaim('correct');
+        } else if (lowerResult.includes('wrong') || lowerResult.includes('incorrect')) {
+          handleOverruleClaim('incorrect');
+        }
       } else if (gameState.micState === 'listening') {
         handleAnswer(result);
       }
     },
-    [gameState.micState]
+    [gameState.micState, gameState.overruleInProgress]
   );
 
   const { startListening, stopListening, isListening } = useSpeechRecognition({
@@ -65,6 +73,42 @@ export default function GamePage() {
   });
 
   const { speak, isSpeaking } = useTextToSpeech();
+
+  // Timer countdown effect - implements MIMIR rules for timed answers
+  useEffect(() => {
+    if (
+      gameState.micState === 'active' ||
+      gameState.micState === 'listening' ||
+      gameState.micState === 'overrule_window'
+    ) {
+      const interval = setInterval(() => {
+        if (gameState.timerSeconds && gameState.timerSeconds > 0) {
+          gameState.setGameState({ timerSeconds: gameState.timerSeconds - 1 });
+        } else if (gameState.timerSeconds === 0) {
+          handleTimeout();
+        }
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [gameState.micState, gameState.timerSeconds]);
+
+  const handleTimeout = () => {
+    if (gameState.micState === 'listening' || gameState.micState === 'active') {
+      // Player ran out of time
+      stopListening();
+      handleAnswer(''); // Empty answer = timeout
+    } else if (gameState.micState === 'overrule_window') {
+      // Overrule window expired
+      gameState.setGameState({
+        micState: 'disabled',
+        overruleInProgress: false,
+      });
+      setTimeout(() => {
+        moveToNextQuestion();
+      }, 1000);
+    }
+  };
 
   const handleStartGame = async () => {
     if (!selectedQuizId || playerNames.some((name) => !name.trim())) {
@@ -181,18 +225,29 @@ export default function GamePage() {
     }
   };
 
-  const checkAnswer = (spoken: string, correct: string): 'correct' | 'incorrect' => {
+  const checkAnswer = (spoken: string, correct: string): 'correct' | 'incorrect' | 'timeout' => {
+    // Handle timeout case (empty answer)
+    if (!spoken || !spoken.trim()) {
+      return 'timeout';
+    }
+
     const normalizedSpoken = spoken.toLowerCase().trim();
     const normalizedCorrect = correct.toLowerCase().trim();
 
+    // Exact substring match
     if (normalizedSpoken.includes(normalizedCorrect)) {
       return 'correct';
     }
 
-    const similarity =
-      normalizedSpoken.split(' ').filter((word) =>
-        normalizedCorrect.includes(word)
-      ).length / normalizedCorrect.split(' ').length;
+    // Fuzzy word-based matching
+    const correctWords = normalizedCorrect.split(' ');
+    if (correctWords.length === 0) return 'incorrect';
+
+    const matchedWords = normalizedSpoken
+      .split(' ')
+      .filter((word) => normalizedCorrect.includes(word)).length;
+
+    const similarity = matchedWords / correctWords.length;
 
     return similarity > 0.7 ? 'correct' : 'incorrect';
   };
@@ -203,8 +258,61 @@ export default function GamePage() {
 
     setTimeout(() => {
       startListening();
-      gameState.setGameState({ overruleInProgress: true });
+      gameState.setGameState({
+        overruleInProgress: true,
+        micState: 'listening',
+      });
     }, 3000);
+  };
+
+  const handleOverruleClaim = async (claimType: 'correct' | 'incorrect') => {
+    stopListening();
+    gameState.setGameState({ micState: 'disabled' });
+
+    if (!gameState.sessionId || !gameState.questions) return;
+
+    const currentQuestion = gameState.questions[gameState.currentQuestionIndex!];
+    const challengerPlayerIndex = gameState.currentPlayerIndex!;
+
+    try {
+      // Record overrule event in database
+      await fetch(`/api/games/${gameState.sessionId}/overrule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionId: currentQuestion.id,
+          challengerId: gameState.players![challengerPlayerIndex].id,
+          challengerName: gameState.players![challengerPlayerIndex].name,
+          claimType,
+        }),
+      });
+
+      // Update game state with overrule result
+      const updates = gameEngine.handleOverrule(
+        gameState as any,
+        challengerPlayerIndex,
+        claimType
+      );
+
+      gameState.setGameState(updates);
+
+      // Announce result and move to next question
+      const message = claimType === 'correct'
+        ? 'Overrule accepted. Points awarded.'
+        : 'Overrule accepted. Penalty applied.';
+
+      speak(message);
+
+      setTimeout(() => {
+        moveToNextQuestion();
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to process overrule:', error);
+      speak('Failed to process overrule. Moving to next question.');
+      setTimeout(() => {
+        moveToNextQuestion();
+      }, 2000);
+    }
   };
 
   const moveToNextQuestion = () => {

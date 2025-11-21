@@ -4,6 +4,7 @@ import { gameSessions, quizFiles, quizQuestions, auditLogs } from '@/db/schema';
 import { getCurrentUser } from '@/lib/auth-utils';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
 
 const createGameSchema = z.object({
   quizFileId: z.number(),
@@ -11,6 +12,10 @@ const createGameSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // Apply rate limiting: 20 game creations per hour
+  const rateLimitResponse = await rateLimit(req, RATE_LIMIT_CONFIGS.GAME_CREATE);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const user = await getCurrentUser();
 
