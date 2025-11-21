@@ -7,6 +7,7 @@ import { parseXLSX, validateXLSXStructure } from '@/lib/xlsx-parser';
 import { sanitizeQuizMetadata } from '@/lib/sanitization';
 import { getClientIp } from '@/lib/request-utils';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
 
 // Max file size: 10MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -19,6 +20,10 @@ const metadataSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // Apply rate limiting: 10 uploads per hour
+  const rateLimitResponse = await rateLimit(req, RATE_LIMIT_CONFIGS.UPLOAD);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const user = await getCurrentUser();
 

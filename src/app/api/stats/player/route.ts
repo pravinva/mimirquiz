@@ -14,6 +14,9 @@ export async function GET(req: NextRequest) {
 
     const userId = parseInt(user.id);
 
+    // Query sessions where user is a participant
+    // Using jsonb_array_elements to safely check array membership
+    // The userId is parameterized to prevent SQL injection
     const sessions = await db
       .select({
         id: gameSessions.id,
@@ -28,7 +31,7 @@ export async function GET(req: NextRequest) {
       })
       .from(gameSessions)
       .where(
-        sql`${userId}::text = ANY(SELECT jsonb_array_elements_text(${gameSessions.playerIds}))`
+        sql`${gameSessions.playerIds}::jsonb @> ${sql`${JSON.stringify([userId])}`}::jsonb`
       );
 
     const answers = await db

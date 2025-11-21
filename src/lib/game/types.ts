@@ -36,7 +36,9 @@ export interface GameState {
   timerSeconds: number;
   showAnswer: boolean;
   overruleInProgress: boolean;
-  warnings?: string[];
+  lastAnswerId?: number;
+  lastAnswerResult?: AnswerResult;
+  lastAnswerPlayerIndex?: number;
 }
 
 export interface AnswerAttempt {

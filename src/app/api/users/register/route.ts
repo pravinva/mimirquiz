@@ -4,7 +4,10 @@ import { db } from '@/db';
 import { users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
 
+// Public registration schema - role is NOT allowed for security
+// Admin and league_admin users must be created by existing admins or via database
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
@@ -12,6 +15,10 @@ const registerSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // Apply rate limiting: 3 registration attempts per hour
+  const rateLimitResponse = await rateLimit(req, RATE_LIMIT_CONFIGS.REGISTER);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const body = await req.json();
     const validatedData = registerSchema.parse(body);
@@ -29,8 +36,8 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await bcrypt.hash(validatedData.password, 10);
 
-    // Public registration always creates 'player' role
-    // Admin roles must be assigned by existing admins
+    // Always assign 'player' role for public registration
+    // Admin role assignment requires database access or protected admin endpoint
     const [newUser] = await db.insert(users).values({
       email: validatedData.email.toLowerCase(),
       name: validatedData.name,

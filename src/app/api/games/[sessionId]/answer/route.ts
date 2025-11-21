@@ -6,6 +6,7 @@ import { sanitizePlayerName, sanitizeSpokenAnswer } from '@/lib/sanitization';
 import { getClientIp } from '@/lib/request-utils';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
 
 const answerSchema = z.object({
   questionId: z.number(),
@@ -23,6 +24,10 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { sessionId: string } }
 ) {
+  // Apply rate limiting: 100 answer submissions per minute
+  const rateLimitResponse = await rateLimit(req, RATE_LIMIT_CONFIGS.SUBMIT_ANSWER);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const user = await getCurrentUser();
 
