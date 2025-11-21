@@ -19,6 +19,7 @@ export function useSpeechRecognition({
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const shouldBeListeningRef = useRef(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -33,10 +34,25 @@ export function useSpeechRecognition({
         recognitionRef.current.interimResults = interimResults;
 
         recognitionRef.current.onresult = (event: any) => {
-          const transcript = Array.from(event.results)
-            .map((result: any) => result[0].transcript)
-            .join('');
-          onResult(transcript);
+          // Get the final transcript (last result is usually the final one)
+          let finalTranscript = '';
+          let interimTranscript = '';
+          
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript + ' ';
+            } else {
+              interimTranscript += transcript + ' ';
+            }
+          }
+          
+          // Prioritize final transcript, but also send interim for UI feedback
+          const transcriptToUse = finalTranscript.trim() || interimTranscript.trim();
+          if (transcriptToUse) {
+            // Always send results - let the handler decide what to do with them
+            onResult(transcriptToUse);
+          }
         };
 
         recognitionRef.current.onerror = (event: any) => {
@@ -47,6 +63,22 @@ export function useSpeechRecognition({
 
         recognitionRef.current.onend = () => {
           setIsListening(false);
+          // Auto-restart if continuous mode and we should still be listening
+          if (continuous && shouldBeListeningRef.current) {
+            setTimeout(() => {
+              if (recognitionRef.current && shouldBeListeningRef.current) {
+                try {
+                  recognitionRef.current.start();
+                  setIsListening(true);
+                } catch (err: any) {
+                  // Ignore "already started" errors
+                  if (err.name !== 'InvalidStateError') {
+                    console.error('Failed to restart recognition:', err);
+                  }
+                }
+              }
+            }, 100);
+          }
           onEnd?.();
         };
       } else {
@@ -63,21 +95,61 @@ export function useSpeechRecognition({
   }, [continuous, interimResults, onResult, onEnd]);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListening) {
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-        setError(null);
-      } catch (err) {
-        console.error('Failed to start recognition:', err);
-        setError('Failed to start speech recognition');
-      }
+    if (!recognitionRef.current) {
+      console.error('Speech recognition not initialized');
+      return;
     }
-  }, [isListening]);
+    
+    shouldBeListeningRef.current = true;
+    
+    // If already listening, don't restart
+    if (isListening) {
+      console.log('Already listening, skipping start');
+      return;
+    }
+    
+    try {
+      console.log('Starting speech recognition...');
+      recognitionRef.current.start();
+      setIsListening(true);
+      setError(null);
+      console.log('Speech recognition started successfully');
+    } catch (err: any) {
+      // If already started, that's okay - just update state
+      if (err.name === 'InvalidStateError') {
+        console.log('Recognition already started, updating state');
+        setIsListening(true);
+        return;
+      }
+      console.error('Failed to start recognition:', err);
+      setError('Failed to start speech recognition');
+      // Retry once
+      setTimeout(() => {
+        if (recognitionRef.current && shouldBeListeningRef.current && !isListening) {
+          try {
+            console.log('Retrying speech recognition start...');
+            recognitionRef.current.start();
+            setIsListening(true);
+          } catch (retryErr: any) {
+            console.error('Retry failed:', retryErr);
+            if (retryErr.name === 'InvalidStateError') {
+              setIsListening(true);
+            }
+          }
+        }
+      }, 500);
+    }
+  }, [isListening, continuous]);
 
   const stopListening = useCallback(() => {
+    shouldBeListeningRef.current = false;
     if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+        setIsListening(false);
+      } catch (err) {
+        console.error('Error stopping recognition:', err);
+      }
     }
   }, [isListening]);
 
