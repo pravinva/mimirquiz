@@ -95,23 +95,47 @@ Client 1 ←→ Socket.IO Server ←→ Client 2, 3, 4
 /src/app/game/page.tsx             # Updated game page with multiplayer support
 ```
 
-## Running the Server
+## Deployment
 
-The custom server runs on port 8999 by default:
+### Production Deployment
 
+The multiplayer functionality requires two separate deployments:
+
+1. **Next.js Frontend** → Vercel (serverless)
+2. **Socket.IO Server** → Render (persistent Node.js server)
+
+For detailed deployment instructions, see **[DEPLOYMENT.md](./DEPLOYMENT.md)**
+
+### Local Development
+
+**Option 1: All-in-one (Recommended)**
 ```bash
-npm run dev      # Development mode
-npm run build    # Build for production
-npm start        # Production mode
+npm run dev      # Runs both Next.js + Socket.IO on localhost:8999
+```
+
+**Option 2: Separate processes**
+```bash
+npm run dev:socket  # Socket.IO server on localhost:3001
+npm run dev:next    # Next.js on localhost:8999
 ```
 
 ## Environment Variables
 
-No additional environment variables are required for basic multiplayer functionality. For production deployment:
+### Required for Production
 
 ```env
-NEXT_PUBLIC_SOCKET_URL=https://your-domain.com  # Optional: Custom Socket.IO server URL
+# Socket.IO Server URL (from Render deployment)
+NEXT_PUBLIC_SOCKET_URL=https://your-socket-server.onrender.com
 ```
+
+### Optional for Local Development
+
+```env
+# If running separately, point to local Socket.IO server
+NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
+```
+
+For complete environment variable setup, see `.env.example`
 
 ## Browser Requirements
 

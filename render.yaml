@@ -1,0 +1,19 @@
+services:
+  # Socket.IO Server
+  - type: web
+    name: mimirquiz-socket-server
+    env: node
+    plan: free
+    branch: main  # Deploy from main branch (merge PR first!)
+    buildCommand: npm install
+    startCommand: node socket-server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: ALLOWED_ORIGINS
+        sync: false
+        # Add your Vercel domain here after deployment
+        # Example: https://your-app.vercel.app,https://your-app-preview.vercel.app
