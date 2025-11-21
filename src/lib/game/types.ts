@@ -36,6 +36,7 @@ export interface GameState {
   timerSeconds: number;
   showAnswer: boolean;
   overruleInProgress: boolean;
+  warnings?: string[];
 }
 
 export interface AnswerAttempt {

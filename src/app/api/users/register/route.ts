@@ -9,7 +9,6 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   name: z.string().min(2),
-  role: z.enum(['admin', 'player', 'league_admin']).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -30,11 +29,13 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await bcrypt.hash(validatedData.password, 10);
 
+    // Public registration always creates 'player' role
+    // Admin roles must be assigned by existing admins
     const [newUser] = await db.insert(users).values({
       email: validatedData.email.toLowerCase(),
       name: validatedData.name,
       passwordHash,
-      role: validatedData.role || 'player',
+      role: 'player',
     }).returning();
 
     return NextResponse.json(

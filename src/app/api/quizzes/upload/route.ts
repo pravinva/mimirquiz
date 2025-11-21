@@ -4,7 +4,12 @@ import { db } from '@/db';
 import { quizFiles, quizQuestions, auditLogs } from '@/db/schema';
 import { getCurrentUser } from '@/lib/auth-utils';
 import { parseXLSX, validateXLSXStructure } from '@/lib/xlsx-parser';
+import { sanitizeQuizMetadata } from '@/lib/sanitization';
+import { getClientIp } from '@/lib/request-utils';
 import { z } from 'zod';
+
+// Max file size: 10MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 const metadataSchema = z.object({
   author: z.string().min(1, 'Author is required'),
@@ -36,7 +41,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `File size exceeds maximum of ${MAX_FILE_SIZE / 1024 / 1024}MB` },
+        { status: 400 }
+      );
+    }
+
+    // Validate file extension
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      return NextResponse.json(
+        { error: 'Only XLSX files are allowed' },
+        { status: 400 }
+      );
+    }
+
     const validatedMetadata = metadataSchema.parse(metadata);
+
+    // Sanitize metadata to prevent XSS
+    const sanitizedMetadata = sanitizeQuizMetadata(validatedMetadata);
 
     const fileBuffer = await file.arrayBuffer();
 
@@ -66,10 +90,10 @@ export async function POST(req: NextRequest) {
     const [quizFile] = await db.insert(quizFiles).values({
       fileName: file.name,
       fileUrl: blob.url,
-      author: validatedMetadata.author,
-      topic: validatedMetadata.topic,
-      league: validatedMetadata.league,
-      description: validatedMetadata.description,
+      author: sanitizedMetadata.author,
+      topic: sanitizedMetadata.topic,
+      league: sanitizedMetadata.league,
+      description: sanitizedMetadata.description,
       uploadedBy: parseInt(user.id),
       totalQuestions: parsedData.totalQuestions,
       totalRounds: parsedData.totalRounds,
@@ -93,13 +117,14 @@ export async function POST(req: NextRequest) {
       action: 'upload_quiz',
       entityType: 'quiz_file',
       entityId: quizFile.id,
+      ipAddress: getClientIp(req),
       details: {
         fileName: file.name,
         totalQuestions: parsedData.totalQuestions,
         totalRounds: parsedData.totalRounds,
-        author: validatedMetadata.author,
-        topic: validatedMetadata.topic,
-        league: validatedMetadata.league,
+        author: sanitizedMetadata.author,
+        topic: sanitizedMetadata.topic,
+        league: sanitizedMetadata.league,
       },
     });
 
@@ -114,6 +139,7 @@ export async function POST(req: NextRequest) {
         totalQuestions: quizFile.totalQuestions,
         totalRounds: quizFile.totalRounds,
       },
+      warnings: parsedData.warnings.length > 0 ? parsedData.warnings : undefined,
     });
 
   } catch (error) {
