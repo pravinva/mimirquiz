@@ -33,11 +33,11 @@ const REQUIRED_COLUMNS = [
 ];
 
 const COLUMN_MAPPINGS: Record<string, string[]> = {
-  round: ['round', 'round number', 'round_number', 'roundnumber'],
-  player: ['player', 'player number', 'player_number', 'playernumber'],
-  question: ['question', 'q'],
-  questionImage: ['question image', 'question_image', 'questionimage', 'question url', 'question_url'],
-  answer: ['answer', 'a', 'ans'],
+  round: ['round', 'round number', 'round_number', 'roundnumber', 'roundno'],
+  player: ['player', 'player number', 'player_number', 'playernumber', 'playerno'],
+  question: ['question', 'q', 'questiontext', 'question_text'],
+  questionImage: ['question image', 'question_image', 'questionimage', 'question url', 'question_url', 'imageurl', 'image_url'],
+  answer: ['answer', 'a', 'ans', 'answertext', 'answer_text'],
   answerImage: ['answer image', 'answer_image', 'answerimage', 'answer url', 'answer_url'],
 };
 
@@ -54,6 +54,18 @@ function findColumn(headers: string[], possibleNames: string[]): number {
   }
 
   return -1;
+}
+
+function parseRoundPlayer(value: string): { round: number; player: number } | null {
+  // Handle formats like "Round 1 Player 1", "Round 1 Player 2", etc.
+  const match = value.match(/round\s+(\d+)\s+player\s+(\d+)/i);
+  if (match) {
+    return {
+      round: parseInt(match[1], 10),
+      player: parseInt(match[2], 10),
+    };
+  }
+  return null;
 }
 
 export function validateXLSXStructure(file: ArrayBuffer): { valid: boolean; errors: string[] } {
@@ -98,20 +110,34 @@ export function validateXLSXStructure(file: ArrayBuffer): { valid: boolean; erro
       answer: findColumn(headers, COLUMN_MAPPINGS.answer),
     };
 
+    // Check if roundNo column exists and contains "Round X Player Y" format
+    const roundNoIndex = findColumn(headers, COLUMN_MAPPINGS.round);
+    let hasRoundPlayerFormat = false;
+    if (roundNoIndex !== -1 && columnIndices.player === -1) {
+      // Check first data row to see if it contains "Round X Player Y" format
+      if (data.length > 1) {
+        const firstRowValue = String(data[1][roundNoIndex] || '').trim();
+        hasRoundPlayerFormat = /round\s+\d+\s+player\s+\d+/i.test(firstRowValue);
+      }
+    }
+
     const missingColumns = REQUIRED_COLUMNS.filter(
-      col => columnIndices[col as keyof typeof columnIndices] === -1
+      col => {
+        if (col === 'player' && hasRoundPlayerFormat) return false; // Player info in roundNo
+        return columnIndices[col as keyof typeof columnIndices] === -1;
+      }
     );
 
     if (missingColumns.length > 0) {
       errors.push(
         `Missing required columns: ${missingColumns.join(', ')}\n\n` +
         `Your file must contain these column headers:\n` +
-        `- "round" or "round number" (the round/category number)\n` +
-        `- "player" or "player number" (which player gets the question first)\n` +
-        `- "question" or "q" (the question text)\n` +
-        `- "answer" or "a" or "ans" (the correct answer)\n\n` +
+        `- "round" or "round number" or "roundNo" (the round/category number, or "Round X Player Y" format)\n` +
+        `- "player" or "player number" (which player gets the question first, or included in roundNo as "Round X Player Y")\n` +
+        `- "question" or "q" or "questionText" (the question text)\n` +
+        `- "answer" or "a" or "ans" or "answerText" (the correct answer)\n\n` +
         `Optional columns:\n` +
-        `- "question image" or "question_image" (URL to question image)\n` +
+        `- "question image" or "question_image" or "imageUrl" (URL to question image)\n` +
         `- "answer image" or "answer_image" (URL to answer image)\n\n` +
         `Found headers in your file: ${headers.join(', ')}`
       );
@@ -168,8 +194,19 @@ export function parseXLSX(file: ArrayBuffer): ParsedQuizData {
       continue;
     }
 
-    const roundNum = parseInt(String(row[columnIndices.round] || '0'));
-    const playerNum = parseInt(String(row[columnIndices.player] || '0'));
+    let roundNum = parseInt(String(row[columnIndices.round] || '0'));
+    let playerNum = parseInt(String(row[columnIndices.player] || '0'));
+    
+    // If round/player not found as separate columns, try parsing from roundNo column
+    if ((!roundNum || !playerNum) && columnIndices.round !== -1) {
+      const roundNoValue = String(row[columnIndices.round] || '').trim();
+      const parsed = parseRoundPlayer(roundNoValue);
+      if (parsed) {
+        roundNum = parsed.round;
+        playerNum = parsed.player;
+      }
+    }
+    
     const question = String(row[columnIndices.question] || '').trim();
     const answer = String(row[columnIndices.answer] || '').trim();
 

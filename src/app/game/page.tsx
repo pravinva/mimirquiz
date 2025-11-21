@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
 import { useGameStore } from '@/stores/gameStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { useTextToSpeech } from '@/hooks/useTextToSpeech';
+import { useGoogleCloudTTS } from '@/hooks/useGoogleCloudTTS';
 import { useMicrophone } from '@/hooks/useMicrophone';
 import { gameEngine } from '@/lib/game/engine';
 import { MIMIR_RULES, AnswerResult } from '@/lib/game/types';
@@ -72,7 +72,7 @@ export default function GamePage() {
     onResult: handleSpeechResult,
   });
 
-  const { speak, isSpeaking } = useTextToSpeech();
+  const { speak, isSpeaking } = useGoogleCloudTTS();
 
   // Memoized timeout handler to avoid stale closures in timer effect
   const handleTimeout = useCallback(() => {
@@ -153,9 +153,8 @@ export default function GamePage() {
         gameState.setGameState({
           sessionId: data.session.id,
           ...initialState,
+          status: 'ready', // Changed to 'ready' - waiting for Start Quiz button
         });
-
-        speakQuestion(data.questions[0].question);
       }
     } catch (error) {
       console.error('Failed to start game:', error);
@@ -163,12 +162,31 @@ export default function GamePage() {
     }
   };
 
+  const handleStartQuiz = () => {
+    if (!gameState.questions || gameState.currentQuestionIndex === undefined) {
+      return;
+    }
+    
+    // Start the quiz - change status to in_progress
+    gameState.setGameState({ status: 'in_progress' });
+    
+    // Read the first question
+    const firstQuestion = gameState.questions[gameState.currentQuestionIndex];
+    speakQuestion(firstQuestion.question);
+  };
+
   const speakQuestion = (questionText: string) => {
-    speak(questionText);
-    setTimeout(() => {
-      gameState.setMicState('listening');
-      startListening();
-    }, 1000);
+    // Use Google Cloud TTS with onEnd callback
+    speak(questionText, {
+      onEnd: () => {
+        // After question reading completes, start 30-second timer for first player
+        gameState.setGameState({
+          micState: 'listening',
+          timerSeconds: 30, // 30 seconds AFTER reading completes
+        });
+        startListening();
+      },
+    });
   };
 
   const handleAnswer = async (spokenAnswer: string) => {
@@ -439,8 +457,34 @@ export default function GamePage() {
               onClick={handleStartGame}
               className="w-full bg-primary-600 text-white py-3 rounded-md hover:bg-primary-700"
             >
-              Start Game
+              Create Game
             </button>
+          </div>
+        ) : gameState.status === 'ready' ? (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-2xl font-semibold mb-6 text-center">Game Ready!</h2>
+            <div className="mb-6">
+              <p className="text-center text-gray-600 mb-4">
+                Quiz: {gameState.topic} ({gameState.league})
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {gameState.players?.map((player, idx) => (
+                  <div key={idx} className="p-4 bg-gray-50 rounded-lg text-center">
+                    <div className="font-semibold">{player.name}</div>
+                    <div className="text-sm text-gray-600">Player {idx + 1}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={handleStartQuiz}
+              className="w-full bg-green-600 text-white py-4 rounded-md hover:bg-green-700 text-xl font-bold"
+            >
+              🎮 Start Quiz
+            </button>
+            <p className="text-center text-sm text-gray-500 mt-4">
+              Anyone can click Start Quiz to begin
+            </p>
           </div>
         ) : (
           <div className="space-y-6">

@@ -1,4 +1,4 @@
-export type GameStatus = 'setup' | 'in_progress' | 'paused' | 'completed';
+export type GameStatus = 'setup' | 'ready' | 'in_progress' | 'paused' | 'completed';
 export type AnswerResult = 'correct' | 'incorrect' | 'passed' | 'timeout';
 export type MicState = 'disabled' | 'active' | 'listening' | 'overrule_window';
 
