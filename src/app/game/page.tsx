@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
 import { useGameStore } from '@/stores/gameStore';
@@ -26,7 +26,7 @@ export default function GamePage() {
   const [voiceError, setVoiceError] = useState<string>('');
 
   // Fallback voices if API fails
-  const fallbackVoices: { [key: string]: any[] } = {
+  const fallbackVoices: { [key: string]: any[] } = useMemo(() => ({
     'en-US': [
       { name: 'en-US-Neural2-D', ssmlGender: 'MALE' },
       { name: 'en-US-Neural2-F', ssmlGender: 'FEMALE' },
@@ -52,7 +52,7 @@ export default function GamePage() {
       { name: 'en-IN-Standard-A', ssmlGender: 'FEMALE' },
       { name: 'en-IN-Standard-D', ssmlGender: 'MALE' },
     ],
-  };
+  }), []);
 
   const gameState = useGameStore();
   const { hasPermission, requestPermission } = useMicrophone();
@@ -89,19 +89,7 @@ export default function GamePage() {
     }
   }, [status, isMultiplayer]);
 
-  useEffect(() => {
-    fetchQuizzes();
-    fetchVoices();
-  }, []);
-
-  useEffect(() => {
-    if (languageCode) {
-      fetchVoices();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [languageCode]);
-
-  const fetchVoices = async () => {
+  const fetchVoices = useCallback(async () => {
     setIsLoadingVoices(true);
     try {
       // Add timeout to prevent hanging
@@ -149,7 +137,12 @@ export default function GamePage() {
     } finally {
       setIsLoadingVoices(false);
     }
-  };
+  }, [languageCode, voiceName, fallbackVoices]);
+
+  useEffect(() => {
+    fetchQuizzes();
+    fetchVoices();
+  }, [fetchVoices]);
 
   const fetchQuizzes = async () => {
     try {
@@ -179,15 +172,15 @@ export default function GamePage() {
 
       if (gameState.micState === 'overrule_window') {
         if (trimmedResult.toLowerCase().includes('overrule')) {
-          handleOverruleDetected();
+          handleOverruleDetectedRef.current?.();
         }
       } else if (gameState.overruleInProgress) {
         // Listening for "I was correct" or "I was wrong" during overrule claim
         const lowerResult = trimmedResult.toLowerCase();
         if (lowerResult.includes('correct') || lowerResult.includes('right')) {
-          handleOverruleClaim('correct');
+          handleOverruleClaimRef.current?.('correct');
         } else if (lowerResult.includes('wrong') || lowerResult.includes('incorrect')) {
-          handleOverruleClaim('incorrect');
+          handleOverruleClaimRef.current?.('incorrect');
         }
       } else if (isInRepeatWindowRef.current) {
         // Check for "repeat" during the repeat window
@@ -202,13 +195,13 @@ export default function GamePage() {
           isInRepeatWindowRef.current = false;
           
           // Give player 5 more seconds to answer
-          speak('Repeat', {
+          speakRef.current?.('Repeat', {
             onEnd: () => {
               gameState.setGameState({
                 micState: 'listening',
                 timerSeconds: 5, // 5 seconds for repeat answer
               });
-              startListening();
+              startListeningRef.current?.();
             },
           });
         }
@@ -217,11 +210,11 @@ export default function GamePage() {
         // This will be called for both interim and final results, but handleAnswer will process it
         if (trimmedResult.length >= 2) {
           console.log('Processing answer:', trimmedResult);
-          handleAnswer(trimmedResult);
+          handleAnswerRef.current?.(trimmedResult);
         }
       }
     },
-    [gameState.micState, gameState.overruleInProgress]
+    [gameState]
   );
 
   const { startListening, stopListening, isListening } = useSpeechRecognition({
@@ -235,15 +228,21 @@ export default function GamePage() {
     voiceName,
   });
 
-  // Ref to store handleAnswer function so timeout handler can access it
-  const handleAnswerRef = useRef<((answer: string) => Promise<void>) | null>(null);
-
   // Refs for repeat feature
   const repeatWindowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInRepeatWindowRef = useRef(false);
   const repeatAnswerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentQuestionForRepeatRef = useRef<any>(null);
   const currentPlayerForRepeatRef = useRef<any>(null);
+
+  // Refs to store functions so callbacks can access them
+  const handleAnswerRef = useRef<((answer: string) => Promise<void>) | null>(null);
+  const handleOverruleDetectedRef = useRef<(() => void) | null>(null);
+  const handleOverruleClaimRef = useRef<((claimType: 'correct' | 'incorrect') => Promise<void>) | null>(null);
+  const speakRef = useRef<((text: string, options?: any) => Promise<void>) | null>(null);
+  const startListeningRef = useRef<(() => void) | null>(null);
+  const moveToNextQuestionRef = useRef<(() => void) | null>(null);
+  const checkAnswerRef = useRef<((spoken: string, correct: string) => 'correct' | 'incorrect' | 'timeout') | null>(null);
 
   // Memoized timeout handler to avoid stale closures in timer effect
   const handleTimeout = useCallback(() => {
@@ -266,7 +265,7 @@ export default function GamePage() {
         overruleInProgress: false,
       });
     }
-  }, [gameState.micState, stopListening, gameState, gameState.questions, gameState.sessionId]);
+  }, [stopListening, gameState]);
 
   // Timer countdown effect - implements MIMIR rules for timed answers
   useEffect(() => {
@@ -285,7 +284,7 @@ export default function GamePage() {
 
       return () => clearInterval(interval);
     }
-  }, [gameState.micState, gameState.timerSeconds, handleTimeout]);
+  }, [gameState.micState, gameState.timerSeconds, handleTimeout, gameState]);
 
   const handleStartGame = async () => {
     if (!selectedQuizId || playerNames.some((name) => !name.trim())) {
@@ -354,7 +353,7 @@ export default function GamePage() {
     speakQuestion(firstQuestion.question);
   };
 
-  const speakQuestion = (questionText: string) => {
+  const speakQuestion = useCallback((questionText: string) => {
     // Disable mic and reset timer while reading
     gameState.setGameState({
       micState: 'disabled',
@@ -405,9 +404,9 @@ export default function GamePage() {
         }, 200);
       },
     });
-  };
+  }, [gameState, speak, startListening, stopListening]);
 
-  const handleAnswer = async (spokenAnswer: string) => {
+  const handleAnswer = useCallback(async (spokenAnswer: string) => {
     if (!gameState.questions || !gameState.sessionId) return;
 
     // Clear any repeat window timeouts
@@ -535,7 +534,7 @@ export default function GamePage() {
             speak(`The answer is: ${currentQuestion.answer}`, {
               onEnd: () => {
                 setTimeout(() => {
-                  moveToNextQuestion();
+                  moveToNextQuestionRef.current?.();
                 }, MIMIR_RULES.POST_CORRECT_PAUSE_SECONDS * 1000);
               },
             });
@@ -590,15 +589,10 @@ export default function GamePage() {
         },
       });
     }
-  };
-  
-  // Update ref whenever handleAnswer changes
-  useEffect(() => {
-    handleAnswerRef.current = handleAnswer;
-  });
+  }, [gameState, session, stopListening, speak, startListening, isMultiplayer, submitMultiplayerAnswer]);
 
   // Helper function to normalize text for phonetic comparison
-  const normalizeForPhonetic = (text: string): string => {
+  const normalizeForPhonetic = useCallback((text: string): string => {
     return text
       .toLowerCase()
       .trim()
@@ -609,10 +603,10 @@ export default function GamePage() {
       // Remove extra spaces
       .replace(/\s+/g, ' ')
       .trim();
-  };
+  }, []);
 
   // Normalize for accent variations (handles Indian, British, American, etc.)
-  const normalizeForAccents = (word: string): string => {
+  const normalizeForAccents = useCallback((word: string): string => {
     return word
       .toLowerCase()
       // Common accent variations
@@ -631,10 +625,10 @@ export default function GamePage() {
       .replace(/sh/g, 's')
       .replace(/ck/g, 'k')
       .replace(/qu/g, 'k');
-  };
+  }, []);
 
   // Enhanced phonetic matching using Soundex-like algorithm with accent awareness
-  const getPhoneticCode = (word: string): string => {
+  const getPhoneticCode = useCallback((word: string): string => {
     if (!word || word.length === 0) return '';
     
     // First normalize for accent variations
@@ -669,10 +663,10 @@ export default function GamePage() {
     
     // Pad to 4 characters
     return code.padEnd(4, '0');
-  };
+  }, [normalizeForAccents]);
 
   // Check if two words sound phonetically similar (accent-aware)
-  const soundsPhoneticallySimilar = (word1: string, word2: string): boolean => {
+  const soundsPhoneticallySimilar = useCallback((word1: string, word2: string): boolean => {
     // Direct comparison after accent normalization
     const norm1 = normalizeForAccents(word1);
     const norm2 = normalizeForAccents(word2);
@@ -708,9 +702,9 @@ export default function GamePage() {
     }
     
     return false;
-  };
+  }, [normalizeForAccents, getPhoneticCode]);
 
-  const checkAnswer = (spoken: string, correct: string): 'correct' | 'incorrect' | 'timeout' => {
+  const checkAnswer = useCallback((spoken: string, correct: string): 'correct' | 'incorrect' | 'timeout' => {
     // Handle timeout case (empty answer)
     if (!spoken || !spoken.trim()) {
       return 'timeout';
@@ -773,9 +767,9 @@ export default function GamePage() {
     }
 
     return 'incorrect';
-  };
+  }, [normalizeForPhonetic, soundsPhoneticallySimilar]);
 
-  const handleOverruleDetected = () => {
+  const handleOverruleDetected = useCallback(() => {
     stopListening();
     // Disable mic while speaking
     gameState.setGameState({
@@ -793,9 +787,9 @@ export default function GamePage() {
         });
       },
     });
-  };
+  }, [stopListening, gameState, speak, startListening]);
 
-  const handleOverruleClaim = async (claimType: 'correct' | 'incorrect') => {
+  const handleOverruleClaim = useCallback(async (claimType: 'correct' | 'incorrect') => {
     stopListening();
     gameState.setGameState({ micState: 'disabled' });
 
@@ -866,12 +860,12 @@ export default function GamePage() {
       console.error('Failed to process overrule:', error);
       speak('Failed to process overrule. Moving to next question.');
       setTimeout(() => {
-        moveToNextQuestion();
+        moveToNextQuestionRef.current?.();
       }, 2000);
     }
-  };
+  }, [gameState, stopListening, speak]);
 
-  const moveToNextQuestion = () => {
+  const moveToNextQuestion = useCallback(() => {
     // Play ding sound when moving to next player/question
     playDingSound();
     
@@ -887,7 +881,7 @@ export default function GamePage() {
         speakQuestion(nextQuestion.question);
       }
     }
-  };
+  }, [gameState, speak, speakQuestion]);
 
   if (status === 'loading') {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
