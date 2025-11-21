@@ -25,6 +25,28 @@ This guide explains how to deploy the MIMIR Quiz Platform with multiplayer suppo
 
 ---
 
+## Prerequisites
+
+**IMPORTANT**: Before deploying to production, merge your feature branch to `main`:
+
+1. Create and merge Pull Request:
+   ```bash
+   # Your changes are on: claude/add-multiplayer-quiz-01F2R9kgwyNeU6qYqQhgMCyp
+   # Create PR and merge to main first!
+   ```
+
+2. Or if you have permissions, merge directly:
+   ```bash
+   git checkout main
+   git pull origin main
+   git merge claude/add-multiplayer-quiz-01F2R9kgwyNeU6qYqQhgMCyp
+   git push origin main
+   ```
+
+**All production deployments (Render and Vercel) should deploy from the `main` branch.**
+
+---
+
 ## Part 1: Deploy Socket.IO Server to Render
 
 ### Step 1: Create Render Account
@@ -37,7 +59,7 @@ This guide explains how to deploy the MIMIR Quiz Platform with multiplayer suppo
 3. Configure the service:
    - **Name**: `mimirquiz-socket-server`
    - **Region**: Choose closest to your users
-   - **Branch**: `claude/add-multiplayer-quiz-01F2R9kgwyNeU6qYqQhgMCyp` (or main after merge)
+   - **Branch**: `main` ⚠️ **Important: Use main, not feature branch!**
    - **Root Directory**: Leave empty
    - **Runtime**: Node
    - **Build Command**: `npm install`

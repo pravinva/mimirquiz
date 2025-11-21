@@ -4,6 +4,7 @@ services:
     name: mimirquiz-socket-server
     env: node
     plan: free
+    branch: main  # Deploy from main branch (merge PR first!)
     buildCommand: npm install
     startCommand: node socket-server.js
     healthCheckPath: /health
