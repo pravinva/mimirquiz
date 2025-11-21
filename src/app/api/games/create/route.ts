@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { gameSessions, quizFiles, quizQuestions, auditLogs } from '@/db/schema';
 import { getCurrentUser } from '@/lib/auth-utils';
+import { getClientIp } from '@/lib/request-utils';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
       action: 'create_game',
       entityType: 'game_session',
       entityId: session.id,
+      ipAddress: getClientIp(req),
       details: {
         quizFileId: quizFile.id,
         playerCount: validatedData.playerNames.length,

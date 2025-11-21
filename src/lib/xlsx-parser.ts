@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { sanitizeText, sanitizeUrl } from './sanitization';
 
 export interface QuizQuestion {
   roundNumber: number;
@@ -14,6 +15,7 @@ export interface ParsedQuizData {
   questions: QuizQuestion[];
   totalRounds: number;
   totalQuestions: number;
+  warnings: string[];
 }
 
 export interface QuizMetadata {
@@ -121,42 +123,87 @@ export function parseXLSX(file: ArrayBuffer): ParsedQuizData {
   };
 
   const questions: QuizQuestion[] = [];
+  const warnings: string[] = [];
   let maxRound = 0;
+  let skippedRowCount = 0;
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
+    const rowNumber = i + 1; // Excel row number (1-indexed, +1 for header)
 
-    if (!row || row.length === 0) continue;
+    if (!row || row.length === 0) {
+      skippedRowCount++;
+      continue;
+    }
 
     const roundNum = parseInt(String(row[columnIndices.round] || '0'));
     const playerNum = parseInt(String(row[columnIndices.player] || '0'));
     const question = String(row[columnIndices.question] || '').trim();
     const answer = String(row[columnIndices.answer] || '').trim();
 
+    // Track why rows are skipped
     if (!question || !answer || !roundNum || !playerNum) {
+      const missing: string[] = [];
+      if (!roundNum) missing.push('round');
+      if (!playerNum) missing.push('player');
+      if (!question) missing.push('question');
+      if (!answer) missing.push('answer');
+
+      warnings.push(`Row ${rowNumber}: Skipped due to missing ${missing.join(', ')}`);
+      skippedRowCount++;
       continue;
     }
 
     maxRound = Math.max(maxRound, roundNum);
 
+    // Validate and sanitize image URLs
+    let questionImageUrl: string | undefined;
+    let answerImageUrl: string | undefined;
+
+    if (columnIndices.questionImage !== -1) {
+      const rawQuestionUrl = String(row[columnIndices.questionImage] || '').trim();
+      if (rawQuestionUrl) {
+        const sanitizedUrl = sanitizeUrl(rawQuestionUrl);
+        if (sanitizedUrl) {
+          questionImageUrl = sanitizedUrl;
+        } else {
+          warnings.push(`Row ${rowNumber}: Invalid question image URL "${rawQuestionUrl}"`);
+        }
+      }
+    }
+
+    if (columnIndices.answerImage !== -1) {
+      const rawAnswerUrl = String(row[columnIndices.answerImage] || '').trim();
+      if (rawAnswerUrl) {
+        const sanitizedUrl = sanitizeUrl(rawAnswerUrl);
+        if (sanitizedUrl) {
+          answerImageUrl = sanitizedUrl;
+        } else {
+          warnings.push(`Row ${rowNumber}: Invalid answer image URL "${rawAnswerUrl}"`);
+        }
+      }
+    }
+
+    // Sanitize text content
     questions.push({
       roundNumber: roundNum,
       playerNumber: playerNum,
-      question,
-      questionImageUrl: columnIndices.questionImage !== -1
-        ? String(row[columnIndices.questionImage] || '').trim() || undefined
-        : undefined,
-      answer,
-      answerImageUrl: columnIndices.answerImage !== -1
-        ? String(row[columnIndices.answerImage] || '').trim() || undefined
-        : undefined,
+      question: sanitizeText(question).slice(0, 1000),
+      questionImageUrl,
+      answer: sanitizeText(answer).slice(0, 500),
+      answerImageUrl,
       orderIndex: questions.length,
     });
+  }
+
+  if (skippedRowCount > 0) {
+    warnings.push(`Total rows skipped: ${skippedRowCount}`);
   }
 
   return {
     questions,
     totalRounds: maxRound,
     totalQuestions: questions.length,
+    warnings,
   };
 }

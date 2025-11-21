@@ -59,7 +59,11 @@ export class GameEngine {
     return attemptCount >= totalPlayers;
   }
 
-  getAddressedPlayerForQuestion(question: Question, players: Player[]): number {
+  getAddressedPlayerForQuestion(
+    question: Question,
+    players: Player[],
+    warnings?: string[]
+  ): number {
     const playerNumber = question.playerNumber;
 
     if (playerNumber > 0 && playerNumber <= players.length) {
@@ -139,9 +143,11 @@ export class GameEngine {
     }
 
     const nextQuestion = state.questions[nextQuestionIndex];
+    const warnings: string[] = state.warnings ? [...state.warnings] : [];
     const addressedPlayerIndex = this.getAddressedPlayerForQuestion(
       nextQuestion,
-      state.players
+      state.players,
+      warnings
     );
 
     return {
@@ -154,6 +160,7 @@ export class GameEngine {
       timerSeconds: MIMIR_RULES.ADDRESSED_TIMER_SECONDS,
       showAnswer: false,
       overruleInProgress: false,
+      warnings: warnings.length > 0 ? warnings : undefined,
     };
   }
 
@@ -190,9 +197,11 @@ export class GameEngine {
     questions: Question[]
   ): Partial<GameState> {
     const firstQuestion = questions[0];
+    const warnings: string[] = [];
     const addressedPlayerIndex = this.getAddressedPlayerForQuestion(
       firstQuestion,
-      players
+      players,
+      warnings
     );
 
     return {
@@ -211,6 +220,7 @@ export class GameEngine {
       showAnswer: false,
       overruleInProgress: false,
       status: 'in_progress',
+      warnings: warnings.length > 0 ? warnings : undefined,
     };
   }
 }

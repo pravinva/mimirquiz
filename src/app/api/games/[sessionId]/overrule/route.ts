@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { overruleEvents, playerAnswers, gameSessions, auditLogs } from '@/db/schema';
 import { getCurrentUser } from '@/lib/auth-utils';
+import { getClientIp } from '@/lib/request-utils';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
@@ -47,6 +48,14 @@ export async function POST(
       );
     }
 
+    // Verify the user is the host of the session
+    if (session.hostId !== parseInt(user.id)) {
+      return NextResponse.json(
+        { error: 'Only the game host can record overrules' },
+        { status: 403 }
+      );
+    }
+
     const [overrule] = await db.insert(overruleEvents).values({
       sessionId,
       questionId: validatedData.questionId,
@@ -68,6 +77,7 @@ export async function POST(
       action: 'overrule',
       entityType: 'overrule_event',
       entityId: overrule.id,
+      ipAddress: getClientIp(req),
       details: {
         questionId: validatedData.questionId,
         challengerName: validatedData.challengerName,

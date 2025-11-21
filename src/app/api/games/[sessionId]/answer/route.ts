@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { playerAnswers, gameSessions, auditLogs } from '@/db/schema';
 import { getCurrentUser } from '@/lib/auth-utils';
+import { sanitizePlayerName, sanitizeSpokenAnswer } from '@/lib/sanitization';
+import { getClientIp } from '@/lib/request-utils';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { rateLimit, RATE_LIMIT_CONFIGS } from '@/lib/rate-limiter';
@@ -48,12 +50,24 @@ export async function POST(
       );
     }
 
+    // Verify the user is the host of the session
+    if (session.hostId !== parseInt(user.id)) {
+      return NextResponse.json(
+        { error: 'Only the game host can submit answers' },
+        { status: 403 }
+      );
+    }
+
+    // Sanitize user inputs to prevent XSS
+    const sanitizedPlayerName = sanitizePlayerName(validatedData.playerName);
+    const sanitizedSpokenAnswer = sanitizeSpokenAnswer(validatedData.spokenAnswer);
+
     const [answer] = await db.insert(playerAnswers).values({
       sessionId,
       questionId: validatedData.questionId,
       playerId: validatedData.playerId,
-      playerName: validatedData.playerName,
-      spokenAnswer: validatedData.spokenAnswer,
+      playerName: sanitizedPlayerName,
+      spokenAnswer: sanitizedSpokenAnswer,
       result: validatedData.result,
       isAddressed: validatedData.isAddressed,
       timeTaken: validatedData.timeTaken,
@@ -66,6 +80,7 @@ export async function POST(
       action: 'submit_answer',
       entityType: 'player_answer',
       entityId: answer.id,
+      ipAddress: getClientIp(req),
       details: {
         questionId: validatedData.questionId,
         playerName: validatedData.playerName,
