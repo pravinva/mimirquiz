@@ -30,7 +30,9 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    // Google TTS API returns { voices: [...] }
+    // Ensure we return the voices array properly
+    return NextResponse.json({ voices: data.voices || [] });
   } catch (error) {
     console.error('TTS voices error:', error);
     return NextResponse.json(

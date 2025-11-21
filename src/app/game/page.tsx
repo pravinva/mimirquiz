@@ -104,15 +104,26 @@ export default function GamePage() {
 
       if (response.ok) {
         const data = await response.json();
-        setAvailableVoices(data.voices || []);
+        const voices = data.voices || [];
+        setAvailableVoices(voices);
         setVoiceError(''); // Clear any previous errors
         // Set default voice if available
-        if (data.voices && data.voices.length > 0) {
-          const defaultVoice = data.voices.find((v: any) => v.name.includes('Neural2-D')) || data.voices[0];
+        if (voices.length > 0) {
+          const defaultVoice = voices.find((v: any) => v.name.includes('Neural2-D')) || voices[0];
           setVoiceName(defaultVoice.name);
+        } else {
+          // If API returns empty array, use fallback
+          console.warn('API returned no voices, using fallback');
+          const fallback = fallbackVoices[languageCode] || fallbackVoices['en-US'] || [];
+          setAvailableVoices(fallback);
+          setVoiceError('Using default voices (API returned no voices)');
+          if (fallback.length > 0 && !voiceName) {
+            setVoiceName(fallback[0].name);
+          }
         }
       } else {
-        console.error('Failed to fetch voices:', response.status, await response.text());
+        const errorText = await response.text();
+        console.error('Failed to fetch voices:', response.status, errorText);
         // Use fallback voices on error
         const fallback = fallbackVoices[languageCode] || fallbackVoices['en-US'] || [];
         setAvailableVoices(fallback);
@@ -127,8 +138,11 @@ export default function GamePage() {
       const fallback = fallbackVoices[languageCode] || fallbackVoices['en-US'] || [];
       setAvailableVoices(fallback);
       setVoiceError('Using default voices (API unavailable)');
-      if (fallback.length > 0 && !voiceName) {
-        setVoiceName(fallback[0].name);
+      if (fallback.length > 0) {
+        // Always set a voice if we have fallback, even if voiceName is already set
+        if (!voiceName || !fallback.find((v: any) => v.name === voiceName)) {
+          setVoiceName(fallback[0].name);
+        }
       }
       if (error.name === 'AbortError') {
         console.error('Voice fetch timed out');
@@ -137,17 +151,25 @@ export default function GamePage() {
     } finally {
       setIsLoadingVoices(false);
     }
-  }, [languageCode, voiceName, fallbackVoices]);
+  }, [languageCode, fallbackVoices]);
 
   const fetchQuizzes = useCallback(async () => {
     try {
+      setIsLoadingQuizzes(true);
       const response = await fetch('/api/quizzes');
       if (response.ok) {
         const data = await response.json();
-        setQuizzes(data.quizzes);
+        setQuizzes(data.quizzes || []);
+        if (!data.quizzes || data.quizzes.length === 0) {
+          console.warn('No quizzes found');
+        }
+      } else {
+        console.error('Failed to fetch quizzes:', response.status, await response.text());
+        setQuizzes([]);
       }
     } catch (error) {
       console.error('Failed to fetch quizzes:', error);
+      setQuizzes([]);
     } finally {
       setIsLoadingQuizzes(false);
     }
