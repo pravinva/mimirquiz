@@ -8,7 +8,7 @@ import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useTextToSpeech } from '@/hooks/useTextToSpeech';
 import { useMicrophone } from '@/hooks/useMicrophone';
 import { gameEngine } from '@/lib/game/engine';
-import { MIMIR_RULES } from '@/lib/game/types';
+import { MIMIR_RULES, AnswerResult } from '@/lib/game/types';
 
 export default function GamePage() {
   const { data: session, status } = useSession();
@@ -74,6 +74,22 @@ export default function GamePage() {
 
   const { speak, isSpeaking } = useTextToSpeech();
 
+  // Memoized timeout handler to avoid stale closures in timer effect
+  const handleTimeout = useCallback(() => {
+    if (gameState.micState === 'listening' || gameState.micState === 'active') {
+      // Player ran out of time
+      stopListening();
+      // Will be handled by handleAnswer function
+      gameState.setGameState({ micState: 'disabled' });
+    } else if (gameState.micState === 'overrule_window') {
+      // Overrule window expired
+      gameState.setGameState({
+        micState: 'disabled',
+        overruleInProgress: false,
+      });
+    }
+  }, [gameState.micState, stopListening, gameState]);
+
   // Timer countdown effect - implements MIMIR rules for timed answers
   useEffect(() => {
     if (
@@ -91,24 +107,7 @@ export default function GamePage() {
 
       return () => clearInterval(interval);
     }
-  }, [gameState.micState, gameState.timerSeconds]);
-
-  const handleTimeout = () => {
-    if (gameState.micState === 'listening' || gameState.micState === 'active') {
-      // Player ran out of time
-      stopListening();
-      handleAnswer(''); // Empty answer = timeout
-    } else if (gameState.micState === 'overrule_window') {
-      // Overrule window expired
-      gameState.setGameState({
-        micState: 'disabled',
-        overruleInProgress: false,
-      });
-      setTimeout(() => {
-        moveToNextQuestion();
-      }, 1000);
-    }
-  };
+  }, [gameState.micState, gameState.timerSeconds, handleTimeout]);
 
   const handleStartGame = async () => {
     if (!selectedQuizId || playerNames.some((name) => !name.trim())) {
@@ -187,29 +186,52 @@ export default function GamePage() {
 
     const pointsAwarded = gameEngine.calculateScore(result, isAddressed);
 
-    await fetch(`/api/games/${gameState.sessionId}/answer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        questionId: currentQuestion.id,
-        playerId: currentPlayer.id,
-        playerName: currentPlayer.name,
+    // Submit answer to API and capture response
+    try {
+      const response = await fetch(`/api/games/${gameState.sessionId}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionId: currentQuestion.id,
+          playerId: currentPlayer.id,
+          playerName: currentPlayer.name,
+          spokenAnswer,
+          result,
+          isAddressed,
+          timeTaken: MIMIR_RULES.ADDRESSED_TIMER_SECONDS - (gameState.timerSeconds || 0),
+          attemptOrder: gameState.attemptCount || 0,
+          pointsAwarded,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to save answer:', await response.text());
+        speak('Failed to save answer. Please check your connection.');
+        return;
+      }
+
+      const data = await response.json();
+
+      // Store answer ID and result for potential overrule
+      const updates = gameEngine.processAnswer(
+        gameState as any,
         spokenAnswer,
-        result,
-        isAddressed,
-        timeTaken: MIMIR_RULES.ADDRESSED_TIMER_SECONDS - (gameState.timerSeconds || 0),
-        attemptOrder: gameState.attemptCount || 0,
-        pointsAwarded,
-      }),
-    });
+        result
+      );
 
-    const updates = gameEngine.processAnswer(
-      gameState as any,
-      spokenAnswer,
-      result
-    );
+      gameState.setGameState({
+        ...updates,
+        lastAnswerId: data.answer.id,
+        lastAnswerResult: result,
+        lastAnswerPlayerIndex: gameState.currentPlayerIndex,
+      });
+    } catch (error) {
+      console.error('Failed to submit answer:', error);
+      speak('Failed to save answer. Please check your connection.');
+      return;
+    }
 
-    gameState.setGameState(updates);
+    const updates = gameState as any;
 
     if (result === 'correct') {
       setTimeout(() => {
@@ -269,28 +291,54 @@ export default function GamePage() {
     stopListening();
     gameState.setGameState({ micState: 'disabled' });
 
-    if (!gameState.sessionId || !gameState.questions) return;
+    if (!gameState.sessionId || !gameState.questions || !gameState.lastAnswerId) {
+      console.error('Missing required data for overrule');
+      speak('Cannot process overrule. Missing answer data.');
+      return;
+    }
 
     const currentQuestion = gameState.questions[gameState.currentQuestionIndex!];
     const challengerPlayerIndex = gameState.currentPlayerIndex!;
+    const originalResult = gameState.lastAnswerResult || 'incorrect';
+    const lastPlayerIndex = gameState.lastAnswerPlayerIndex ?? gameState.currentPlayerIndex!;
+
+    // Determine new result based on claim
+    const newResult: AnswerResult = claimType === 'correct' ? 'correct' : 'incorrect';
+
+    // Calculate points adjustment
+    const wasAddressed = lastPlayerIndex === gameState.addressedPlayerIndex;
+    const originalPoints = gameEngine.calculateScore(originalResult, wasAddressed);
+    const newPoints = gameEngine.calculateScore(newResult, wasAddressed);
+    const pointsAdjustment = newPoints - originalPoints;
 
     try {
       // Record overrule event in database
-      await fetch(`/api/games/${gameState.sessionId}/overrule`, {
+      const response = await fetch(`/api/games/${gameState.sessionId}/overrule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           questionId: currentQuestion.id,
+          originalAnswerId: gameState.lastAnswerId,
           challengerId: gameState.players![challengerPlayerIndex].id,
           challengerName: gameState.players![challengerPlayerIndex].name,
           claimType,
+          originalResult,
+          newResult,
+          pointsAdjustment,
         }),
       });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('Failed to record overrule:', error);
+        speak('Failed to process overrule. Please try again.');
+        return;
+      }
 
       // Update game state with overrule result
       const updates = gameEngine.handleOverrule(
         gameState as any,
-        challengerPlayerIndex,
+        lastPlayerIndex,
         claimType
       );
 
