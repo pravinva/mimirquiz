@@ -139,7 +139,7 @@ export function useSpeechRecognition({
         }
       }, 500);
     }
-  }, [isListening, continuous]);
+  }, [isListening]);
 
   const stopListening = useCallback(() => {
     shouldBeListeningRef.current = false;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 
 export default function QuizLibrary() {
@@ -8,11 +8,7 @@ export default function QuizLibrary() {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState({ league: '', topic: '', search: '' });
 
-  useEffect(() => {
-    fetchQuizzes();
-  }, [filter]);
-
-  const fetchQuizzes = async () => {
+  const fetchQuizzes = useCallback(async () => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
@@ -30,7 +26,11 @@ export default function QuizLibrary() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [filter]);
+
+  useEffect(() => {
+    fetchQuizzes();
+  }, [fetchQuizzes]);
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
