@@ -4,8 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "node server.js",
+    "dev:socket": "node socket-server.js",
+    "dev:next": "next dev -p 8999",
     "build": "next build",
-    "start": "node server.js",
+    "start": "next start -p 8999",
+    "start:socket": "node socket-server.js",
     "lint": "next lint",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push:pg",
