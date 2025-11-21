@@ -18,8 +18,6 @@ export async function GET(req: NextRequest) {
     const author = searchParams.get('author');
     const search = searchParams.get('search');
 
-    let query = db.select().from(quizFiles);
-
     const conditions = [];
 
     if (league) {
@@ -40,15 +38,13 @@ export async function GET(req: NextRequest) {
           like(quizFiles.fileName, `%${search}%`),
           like(quizFiles.topic, `%${search}%`),
           like(quizFiles.author, `%${search}%`)
-        )
+        )!
       );
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
-
-    const quizzesList = await query.orderBy(desc(quizFiles.createdAt));
+    const quizzesList = conditions.length > 0
+      ? await db.select().from(quizFiles).where(and(...conditions)).orderBy(desc(quizFiles.createdAt))
+      : await db.select().from(quizFiles).orderBy(desc(quizFiles.createdAt));
 
     return NextResponse.json({ quizzes: quizzesList });
 

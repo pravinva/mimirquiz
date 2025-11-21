@@ -17,6 +17,10 @@ export default function LobbyPage() {
 
   useEffect(() => {
     const socket = initSocket();
+    if (!socket) {
+      setError('Socket.IO client not available. Please install socket.io-client.');
+      return;
+    }
     socket.connect();
 
     socket.on('connect', () => {
